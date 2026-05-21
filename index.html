@@ -1032,6 +1032,17 @@
             });
         }
 
+        // ローカルストレージ関数：投稿されたビデオメタデータを保存・読込
+        function saveVideoMetadataLocally(videoMetadata) {
+            const storedVideos = JSON.parse(localStorage.getItem('yt_clone_user_videos') || '[]');
+            storedVideos.push(videoMetadata);
+            localStorage.setItem('yt_clone_user_videos', JSON.stringify(storedVideos));
+        }
+
+        function getStoredVideoMetadata() {
+            return JSON.parse(localStorage.getItem('yt_clone_user_videos') || '[]');
+        }
+
         // --- PRESETS FOR QUICK INPUT ---
         const presets = {
             lofi: {
@@ -1258,10 +1269,16 @@
                     });
                 });
                 
-                videos = [...initialDefaultVideos, ...cloudVideos];
+                // ローカルストレージに保存されたビデオメタデータも含める
+                const localStoredVideos = getStoredVideoMetadata();
+                videos = [...initialDefaultVideos, ...cloudVideos, ...localStoredVideos];
                 refreshActiveView();
             }, (err) => {
                 console.error("Error syncing public videos:", err);
+                // エラーでもローカルストレージから読み込む
+                const localStoredVideos = getStoredVideoMetadata();
+                videos = [...initialDefaultVideos, ...localStoredVideos];
+                refreshActiveView();
             });
         }
 
@@ -2245,12 +2262,13 @@
             try {
                 await setDoc(doc(getPublicVideosCollection(), uniqueId), finalVidObj);
                 
-                // ローカル配列に新しいビデオを即座に追加（UI更新の遅延を防止）
+                // ローカル配列とローカルストレージに新しいビデオを即座に追加
                 const newVideoWithId = {
                     id: uniqueId,
                     ...finalVidObj
                 };
                 videos.push(newVideoWithId);
+                saveVideoMetadataLocally(newVideoWithId);
                 
                 closeUploadModal();
                 showToast("新しいビデオを共有保存しました！", "fa-circle-check");
@@ -2258,7 +2276,19 @@
                 refreshActiveView();
             } catch (err) {
                 console.error("Failed cloud video upload:", err);
-                showToast("アップロードに失敗しました", "fa-triangle-exclamation", true);
+                
+                // Firestore保存失敗時も、ローカルストレージに保存
+                const newVideoWithId = {
+                    id: uniqueId,
+                    ...finalVidObj
+                };
+                videos.push(newVideoWithId);
+                saveVideoMetadataLocally(newVideoWithId);
+                
+                closeUploadModal();
+                showToast("動画をローカルに保存しました（クラウド同期は失敗しました）", "fa-circle-check");
+                showPage('home');
+                refreshActiveView();
             }
         }
 
