@@ -588,8 +588,8 @@
                     <div id="dropZone" class="border-2 border-dashed border-gray-300 dark:border-zinc-700 rounded-xl p-8 text-center cursor-pointer hover:bg-gray-50 dark:hover:bg-zinc-800/40 transition duration-150">
                         <i class="fa-solid fa-file-arrow-up text-4xl text-blue-500 mb-2 block"></i>
                         <p class="text-sm font-medium">ここに動画ファイルをドラッグ＆ドロップ、またはクリックして選択</p>
-                        <p class="text-xs text-gray-400 mt-1">対応フォーマット: MP4, WebM, MOV等 (最大 50MB)</p>
-                        <input type="file" id="uploadFile" accept="video/*" class="hidden">
+                        <p class="text-xs text-gray-400 mt-1">対応フォーマット: MP4, WebM, MOV, MP3, WAV, M4A等 (最大 50MB)</p>
+                        <input type="file" id="uploadFile" accept="video/*,audio/*" class="hidden">
                     </div>
                     <!-- Selected File Info -->
                     <div id="selectedFileInfo" class="hidden bg-gray-50 dark:bg-zinc-800/40 p-3 rounded-lg flex items-center justify-between border border-gray-200 dark:border-zinc-800">
@@ -962,7 +962,9 @@
         const DB_NAME = 'YoutubeCloneLocalStore';
         const STORE_NAME = 'localVideos';
         
-        let videos = [...initialDefaultVideos];
+        // ページ読み込み時にローカルストレージから事前に読み込む
+        const localStoredVideos = typeof getStoredVideoMetadata !== 'undefined' ? [] : JSON.parse(localStorage.getItem('yt_clone_user_videos') || '[]');
+        let videos = [...initialDefaultVideos, ...localStoredVideos];
         let libraryList = [];
         let historyList = [];
         let likedList = [];
@@ -1547,20 +1549,50 @@
             const container = document.getElementById('videoContainer');
             container.innerHTML = '';
 
+            // CASE 0: Audio file playback (音楽ファイル)
+            if (videoObj.isAudio) {
+                const albumArt = videoObj.thumbnail || 'https://placehold.co/600x600/212121/ffffff?text=Music';
+                container.innerHTML = `
+                    <div class="w-full h-full rounded-2xl bg-gradient-to-br from-zinc-900 to-black flex flex-col items-center justify-center p-8">
+                        <img src="${albumArt}" alt="album art" class="w-48 h-48 rounded-2xl shadow-2xl mb-6 object-cover">
+                        <audio class="w-full" controls autoplay style="max-width: 90%;">
+                            <source src="${videoObj.ytId}" type="${videoObj.audioMimeType || 'audio/mpeg'}">
+                            お使いのブラウザはオーディオ再生に対応していません。
+                        </audio>
+                        <div class="mt-6 text-center text-white">
+                            <p class="text-sm text-gray-300">${videoObj.channelName}</p>
+                        </div>
+                    </div>
+                `;
+
             // CASE 1: Local Offline Persistent Video file (via IndexedDB)
-            if (videoObj.id.startsWith('local-')) {
+            } else if (videoObj.id.startsWith('local-')) {
                 container.innerHTML = `<div class="w-full h-full flex flex-col items-center justify-center bg-zinc-900 text-white space-y-2"><i class="fa-solid fa-circle-notch animate-spin text-3xl text-blue-500"></i><p class="text-xs">ローカル動画を準備中...</p></div>`;
                 
                 try {
                     const videoBlob = await getLocalVideoFile(videoObj.id);
                     if (videoBlob) {
                         const blobUrl = URL.createObjectURL(videoBlob);
-                        container.innerHTML = `
-                            <video class="w-full h-full rounded-2xl" controls autoplay>
-                                <source src="${blobUrl}" type="${videoBlob.type}">
-                                お使いのブラウザはビデオ再生に対応していません。
-                            </video>
-                        `;
+                        // 音声ファイルか動画ファイルか判定
+                        if (videoBlob.type.startsWith('audio/')) {
+                            const albumArt = videoObj.thumbnail || 'https://placehold.co/600x600/212121/ffffff?text=Music';
+                            container.innerHTML = `
+                                <div class="w-full h-full rounded-2xl bg-gradient-to-br from-zinc-900 to-black flex flex-col items-center justify-center p-8">
+                                    <img src="${albumArt}" alt="album art" class="w-48 h-48 rounded-2xl shadow-2xl mb-6 object-cover">
+                                    <audio class="w-full" controls autoplay style="max-width: 90%;">
+                                        <source src="${blobUrl}" type="${videoBlob.type}">
+                                        お使いのブラウザはオーディオ再生に対応していません。
+                                    </audio>
+                                </div>
+                            `;
+                        } else {
+                            container.innerHTML = `
+                                <video class="w-full h-full rounded-2xl" controls autoplay>
+                                    <source src="${blobUrl}" type="${videoBlob.type}">
+                                    お使いのブラウザはビデオ再生に対応していません。
+                                </video>
+                            `;
+                        }
                     } else {
                         container.innerHTML = `
                             <video class="w-full h-full rounded-2xl" controls autoplay loop>
@@ -1585,14 +1617,31 @@
                     </iframe>
                 `;
 
-            // CASE 3: Direct web MP4 streaming link
+            // CASE 3: Direct web MP4 or Audio streaming link
             } else {
-                container.innerHTML = `
-                    <video class="w-full h-full rounded-2xl" controls autoplay>
-                        <source src="${videoObj.ytId}" type="video/mp4">
-                        お使いのブラウザはビデオ再生に対応していません。
-                    </video>
-                `;
+                // URLから拡張子を判定して音声か動画か判定
+                const urlLower = videoObj.ytId.toLowerCase();
+                const isAudioUrl = /\.(mp3|wav|m4a|aac|ogg|flac)(\?.*)?$/i.test(urlLower);
+                
+                if (isAudioUrl) {
+                    const albumArt = videoObj.thumbnail || 'https://placehold.co/600x600/212121/ffffff?text=Music';
+                    container.innerHTML = `
+                        <div class="w-full h-full rounded-2xl bg-gradient-to-br from-zinc-900 to-black flex flex-col items-center justify-center p-8">
+                            <img src="${albumArt}" alt="album art" class="w-48 h-48 rounded-2xl shadow-2xl mb-6 object-cover">
+                            <audio class="w-full" controls autoplay style="max-width: 90%;">
+                                <source src="${videoObj.ytId}" type="audio/mpeg">
+                                お使いのブラウザはオーディオ再生に対応していません。
+                            </audio>
+                        </div>
+                    `;
+                } else {
+                    container.innerHTML = `
+                        <video class="w-full h-full rounded-2xl" controls autoplay>
+                            <source src="${videoObj.ytId}" type="video/mp4">
+                            お使いのブラウザはビデオ再生に対応していません。
+                        </video>
+                    `;
+                }
             }
 
             if (!videoObj.id.startsWith('vid-')) {
@@ -2191,9 +2240,14 @@
                 try {
                     await saveLocalVideoFile(uniqueId, currentSelectedFile);
 
+                    // 音声ファイルか動画ファイルか判定
+                    const isAudio = currentSelectedFile.type.startsWith('audio/');
+                    
                     finalVidObj = {
                         ytId: "https://assets.mixkit.co/videos/preview/mixkit-forest-stream-in-the-sunlight-529-large.mp4",
                         isYt: false,
+                        isAudio: isAudio,
+                        audioMimeType: currentSelectedFile.type,
                         title: title,
                         channelName: channel,
                         channelAvatar: `https://placehold.co/100x100/3b82f6/ffffff?text=${channel.substring(0,2).toUpperCase()}`,
@@ -2202,11 +2256,11 @@
                         viewsCount: 0,
                         publishDate: "たった今",
                         category: category,
-                        tags: ["#マイビデオ", `#${category}`, "#ローカル動画"],
+                        tags: ["#マイビデオ", `#${category}`, isAudio ? "#音楽" : "#ローカル動画"],
                         likes: "0",
                         likesCount: 0,
                         dislikesCount: 0,
-                        thumbnail: customThumb || generatedThumbnailBase64 || 'https://placehold.co/600x400/212121/ffffff?text=Video+Stream',
+                        thumbnail: customThumb || (isAudio ? 'https://placehold.co/600x600/212121/ffffff?text=Music' : generatedThumbnailBase64) || 'https://placehold.co/600x400/212121/ffffff?text=Video+Stream',
                         description: desc,
                         createdAt: Date.now(),
                         ownerId: userId
@@ -2237,9 +2291,14 @@
                     }
                 }
 
+                // URLから音声ファイルかどうかを判定
+                const urlLower = ytId.toLowerCase();
+                const isAudio = /\.(mp3|wav|m4a|aac|ogg|flac)(\?.*)?$/i.test(urlLower);
+
                 finalVidObj = {
                     ytId: ytId,
                     isYt: isYt,
+                    isAudio: isAudio,
                     title: title,
                     channelName: channel,
                     channelAvatar: `https://placehold.co/100x100/dc2626/ffffff?text=${channel.substring(0,2).toUpperCase()}`,
@@ -2248,11 +2307,11 @@
                     viewsCount: 0,
                     publishDate: "たった今",
                     category: category,
-                    tags: ["#新着動画", `#${category}`],
+                    tags: ["#新着動画", `#${category}`, isAudio ? "#音楽" : ""],
                     likes: "0",
                     likesCount: 0,
                     dislikesCount: 0,
-                    thumbnail: customThumb || (isYt ? `https://img.youtube.com/vi/${ytId}/hqdefault.jpg` : 'https://placehold.co/600x400/212121/ffffff?text=Studio+Custom+Video'),
+                    thumbnail: customThumb || (isAudio ? 'https://placehold.co/600x600/212121/ffffff?text=Music' : (isYt ? `https://img.youtube.com/vi/${ytId}/hqdefault.jpg` : 'https://placehold.co/600x400/212121/ffffff?text=Studio+Custom+Video')),
                     description: desc,
                     createdAt: Date.now(),
                     ownerId: userId
