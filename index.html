@@ -2244,9 +2244,18 @@
 
             try {
                 await setDoc(doc(getPublicVideosCollection(), uniqueId), finalVidObj);
+                
+                // ローカル配列に新しいビデオを即座に追加（UI更新の遅延を防止）
+                const newVideoWithId = {
+                    id: uniqueId,
+                    ...finalVidObj
+                };
+                videos.push(newVideoWithId);
+                
                 closeUploadModal();
                 showToast("新しいビデオを共有保存しました！", "fa-circle-check");
                 showPage('home');
+                refreshActiveView();
             } catch (err) {
                 console.error("Failed cloud video upload:", err);
                 showToast("アップロードに失敗しました", "fa-triangle-exclamation", true);
